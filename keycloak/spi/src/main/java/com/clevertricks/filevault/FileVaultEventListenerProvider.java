@@ -1,4 +1,4 @@
-package com.clevertricks.fileuploader;
+package com.clevertricks.filevault;
 
 import java.sql.Connection;
 import java.sql.SQLException;

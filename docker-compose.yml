@@ -1,0 +1,83 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      STORAGE_TYPE: postgresFS
+      STORAGE_LOCATION: fileuploader/data
+      STORAGE_HOST: db
+      STORAGE_PORT: 5432
+      STORAGE_DB: fileuploader
+      STORAGE_USERNAME: postgres
+      STORAGE_PASSWORD: postgres
+      KEYCLOAK_AUTHORIZATION_URI: http://localhost:8180/realms/filevault/protocol/openid-connect/auth
+      KEYCLOAK_TOKEN_URI: http://keycloak:8180/realms/filevault/protocol/openid-connect/token
+      KEYCLOAK_USERINFO_URI: http://keycloak:8180/realms/filevault/protocol/openid-connect/userinfo
+      KEYCLOAK_JWK_URI: http://keycloak:8180/realms/filevault/protocol/openid-connect/certs
+      KEYCLOAK_CLIENT_SECRET: filevault-secret
+    volumes:
+      - fs_data:/app/fileuploader
+    depends_on:
+      db:
+        condition: service_healthy
+      wait-for-keycloak:
+        condition: service_completed_successfully
+
+
+  wait-for-keycloak:
+    image: curlimages/curl
+    depends_on:
+      - keycloak
+    command: >
+      sh -c "
+      until curl -sf http://keycloak:9000/health/ready;
+      do
+        echo 'Waiting for Keycloak...';
+        sleep 3;
+      done;
+      echo 'Keycloak is ready!'"
+
+  keycloak:
+    build: ./keycloak
+    command:
+    - start
+    - --http-port=8180
+    - --spi-events-listener-filevault-event-listener-db-url=jdbc:postgresql://db:5432/fileuploader
+    - --spi-events-listener-filevault-event-listener-db-username=postgres
+    - --spi-events-listener-filevault-event-listener-db-password=postgres
+    ports:
+    - "8180:8180"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: true
+      KC_HEALTH_ENABLED: true
+      KC_HTTP_PORT: 8180
+      KC_HOSTNAME: localhost
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 5
+
+volumes:
+  db_data:
+  fs_data:

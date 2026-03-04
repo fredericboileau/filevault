@@ -1,0 +1,13 @@
+services:
+  keycloak:
+    volumes:
+      - test_keycloak_data:/opt/keycloak/data
+
+  db:
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - test_db_data:/var/lib/postgresql/data
+
+volumes:
+  test_db_data:
+  test_keycloak_data:

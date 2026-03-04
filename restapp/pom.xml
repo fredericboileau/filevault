@@ -12,6 +12,9 @@
 		<artifactId>spring-boot-starter-parent</artifactId>
 		<version>4.0.3</version>
 	</parent>
+  <properties>
+    <jackson.version>3.0.0</jackson.version>
+  </properties>
 
   <dependencies>
     <dependency>
@@ -50,6 +53,11 @@
       <groupId>org.testcontainers</groupId>
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>tools.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
     </dependency>
   </dependencies>
 

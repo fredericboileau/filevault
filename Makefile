@@ -13,6 +13,7 @@ start-infra:
 
 start-app:
 	docker compose up -d app
+	cd frontend && npm run dev
 
 test:
 	$(COMPOSE_TEST) up -d db keycloak

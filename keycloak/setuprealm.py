@@ -16,7 +16,12 @@ keycloak_url = "http://localhost:8180"
 realm = "filevault"
 client_id = "filevault-app"
 client_secret = "filevault-secret"
-redirect_uri = "http://localhost:8080/login/oauth2/code/keycloak"
+redirect_uris = [
+    "http://localhost:8080/login/oauth2/code/keycloak",
+    "http://localhost:5173/*",
+    "http://localhost:5173/",
+]
+web_origins = ["http://localhost:8080", "http://localhost:5173"]
 
 
 def auth_header(token: str) -> dict:
@@ -47,28 +52,42 @@ def create_realm(token: str) -> None:
         sys.exit(1)
 
 
+client_config = {
+    "clientId": client_id, "enabled": True, "publicClient": True,
+    "standardFlowEnabled": True, "directAccessGrantsEnabled": True,
+    "redirectUris": redirect_uris,
+    "webOrigins": web_origins,
+    "attributes": {"post.logout.redirect.uris": "http://localhost:5173/"}
+}
+
+
 def create_client(token: str) -> str:
     r = requests.post(
         f"{keycloak_url}/admin/realms/{realm}/clients",
         headers=auth_header(token),
-        json={"clientId": client_id, "enabled": True, "publicClient": False,
-              "standardFlowEnabled": True, "directAccessGrantsEnabled": True,
-              "secret": client_secret, "redirectUris": [redirect_uri],
-              "webOrigins": ["http://localhost:8080"],
-              "attributes": {"post.logout.redirect.uris": "http://localhost:8080"}}
+        json=client_config,
     )
     if r.status_code == 201:
-        print(f"Client created. Secret is {client_secret}")
+        print("Client created (public)")
     elif r.status_code == 409:
-        print("Client already exists, skipping")
+        print("Client already exists, updating redirect URIs")
     else:
         print(f"Unexpected status {r.status_code} creating client, aborting")
         sys.exit(1)
 
-    return requests.get(
+    client_uuid = requests.get(
         f"{keycloak_url}/admin/realms/{realm}/clients?clientId={client_id}",
         headers=auth_header(token)
     ).json()[0]["id"]
+
+    if r.status_code == 409:
+        requests.put(
+            f"{keycloak_url}/admin/realms/{realm}/clients/{client_uuid}",
+            headers=auth_header(token),
+            json=client_config,
+        )
+
+    return client_uuid
 
 
 def add_protocol_mapper(token: str, client_uuid: str, name: str, mapper: str, claim: str) -> None:

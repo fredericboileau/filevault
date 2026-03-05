@@ -1,0 +1,9 @@
+* use hashicorp vault for all credentials
+* DONE parametrize setuprealm to only use alice and bob for testing
+* DONE TDD test share
+** retrieve UUID for alice and bob 
+** parametrize fetchToken to use a username
+** uploadfile for user alice
+** share with bob
+** fetch shares and see if match
+* React app

@@ -10,13 +10,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * End-to-end tests against a running docker compose stack.
  * Start the stack before running: docker compose up --build
- * Then provision Keycloak: bash keycloak/setup-realm.sh
+ * Then provision Keycloak: keycloak/setuprealm.py
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class FileVaultE2ETest {
@@ -32,15 +35,27 @@ class FileVaultE2ETest {
     private final ObjectMapper mapper = new ObjectMapper();
     private String token;
 
-    @BeforeAll
-    void setUp() throws Exception {
-        token = fetchToken();
+    record ListFilesView(
+            List<String> files,
+            String username,
+            long totalSize,
+            long maxSize,
+            Map<String, String> otherUsers,
+            Map<String, List<String>> shares) {
     }
 
-    private String fetchToken() throws Exception {
+    record ShareRequest(List<String> files, String userToShareWith) {
+    }
+
+    @BeforeAll
+    void setUp() throws Exception {
+        token = fetchToken(USERNAME, PASSWORD);
+    }
+
+    private String fetchToken(String username, String password) throws Exception {
         var body = String.format(
                 "grant_type=password&client_id=%s&client_secret=%s&username=%s&password=%s",
-                CLIENT_ID, CLIENT_SECRET, USERNAME, PASSWORD);
+                CLIENT_ID, CLIENT_SECRET, username, password);
 
         var request = HttpRequest.newBuilder()
                 .uri(URI.create(TOKEN_URL))
@@ -52,6 +67,55 @@ class FileVaultE2ETest {
         assertEquals(200, response.statusCode(), "Failed to get token: " + response.body());
 
         return mapper.readTree(response.body()).get("access_token").asString();
+    }
+
+    private String extractUserId(String token) throws Exception {
+        String payload = token.split("\\.")[1];
+        String decoded = new String(Base64.getUrlDecoder().decode(payload));
+        return mapper.readTree(decoded).get("sub").asString();
+    }
+
+    @Test
+    void uploadShare_listSharesIncluded() throws Exception {
+
+        String aliceToken = fetchToken("alice", "alice");
+        String bobToken = fetchToken("bob", "bob");
+        var aliceId = extractUserId(aliceToken);
+        var bobId = extractUserId(bobToken);
+
+        var boundary = "boundary-" + System.currentTimeMillis();
+
+        var filename = "aliceToShare";
+        var content = "HELLO BOB".getBytes(StandardCharsets.UTF_8);
+        var uploadRequest = HttpRequest.newBuilder()
+                .uri(URI.create(APP_URL + "/files"))
+                .header("Authorization", "Bearer " + aliceToken)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(multipartBody(boundary, content, filename))
+                .build();
+        var uploadResponse = http.send(uploadRequest, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, uploadResponse.statusCode(), "Upload failed: " + uploadResponse.body());
+
+        var body = mapper.writeValueAsString(new ShareRequest(List.of("aliceToShare"), bobId));
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(APP_URL + "/share"))
+                .header("Authorization", "Bearer " + aliceToken)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        var shareRequestResponse = http.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, shareRequestResponse.statusCode(), "Share request failed: " + shareRequestResponse.body());
+
+        var listRequest = HttpRequest.newBuilder()
+                .uri(URI.create(APP_URL))
+                .header("Authorization", "Bearer " + bobToken)
+                .GET()
+                .build();
+        var listResponse = http.send(listRequest, HttpResponse.BodyHandlers.ofString());
+        ListFilesView view = mapper.readValue(listResponse.body(), ListFilesView.class);
+        assertTrue(view.shares().containsKey(aliceId));
+        assertEquals(List.of("aliceToShare"), view.shares().get(aliceId));
+
     }
 
     @Test
@@ -91,7 +155,7 @@ class FileVaultE2ETest {
 
         // Download
         var downloadRequest = HttpRequest.newBuilder()
-                .uri(URI.create(APP_URL + "/api/files/" + filename))
+                .uri(URI.create(APP_URL + "/files/" + filename))
                 .header("Authorization", "Bearer " + token)
                 .GET()
                 .build();
@@ -119,7 +183,7 @@ class FileVaultE2ETest {
     @Test
     void downloadNonExistentFile_returnsNotFound() throws Exception {
         var request = HttpRequest.newBuilder()
-                .uri(URI.create(APP_URL + "/api/files/does-not-exist.txt"))
+                .uri(URI.create(APP_URL + "/files/does-not-exist.txt"))
                 .header("Authorization", "Bearer " + token)
                 .GET()
                 .build();
@@ -154,4 +218,5 @@ class FileVaultE2ETest {
 
         return HttpRequest.BodyPublishers.ofByteArray(combined);
     }
+
 }

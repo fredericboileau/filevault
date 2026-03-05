@@ -1,99 +1,91 @@
 package com.clevertricks.filevault;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
-import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
-import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
-import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
-import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
-    @Value("${KEYCLOAK_END_SESSION_URI:http://localhost:8180/realms/filevault/protocol/openid-connect/logout}")
-    private String endSessionUri;
-
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
-                .oauth2Login(oauth2 -> oauth2
-                        .defaultSuccessUrl("/", true)
-                        .userInfoEndpoint(userInfo -> userInfo.oidcUserService(oidcUserService())))
-                .logout(logout -> logout
-                        .logoutSuccessHandler(keycloakLogoutHandler())
-                        .invalidateHttpSession(true)
-                        .clearAuthentication(true));
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
         return http.build();
     }
 
     @Bean
-    public OAuth2UserService<OidcUserRequest, OidcUser> oidcUserService() {
-        OidcUserService delegate = new OidcUserService();
-        return userRequest -> {
-            OidcUser oidcUser = delegate.loadUser(userRequest);
-            Set<GrantedAuthority> authorities = new HashSet<>(oidcUser.getAuthorities());
-
-            // Realm roles
-            Map<String, Object> realmAccess = oidcUser.getClaimAsMap("realm_access");
-            if (realmAccess != null) {
-                @SuppressWarnings("unchecked")
-                List<String> roles = (List<String>) realmAccess.get("roles");
-                if (roles != null) {
-                    roles.stream()
-                            .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
-                            .forEach(authorities::add);
-                }
-            }
-
-            // Client roles (scoped: ROLE_<CLIENT-ID>_<ROLE>)
-            Map<String, Object> resourceAccess = oidcUser.getClaimAsMap("resource_access");
-            if (resourceAccess != null) {
-                resourceAccess.entrySet().forEach(entry -> {
-                    String clientId = entry.getKey().toUpperCase();
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> clientMap = (Map<String, Object>) entry.getValue();
-                    @SuppressWarnings("unchecked")
-                    List<String> roles = (List<String>) clientMap.get("roles");
-                    if (roles != null) {
-                        roles.stream()
-                                .map(role -> new SimpleGrantedAuthority("ROLE_" + clientId + "_" + role.toUpperCase()))
-                                .forEach(authorities::add);
-                    }
-                });
-            }
-
-            return new DefaultOidcUser(authorities, oidcUser.getIdToken(), oidcUser.getUserInfo());
-        };
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(this::extractAuthorities);
+        return converter;
     }
 
-    private LogoutSuccessHandler keycloakLogoutHandler() {
-        return (request, response, authentication) -> {
-            String baseUrl = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
-            StringBuilder logoutUrl = new StringBuilder(endSessionUri);
-            logoutUrl.append("?post_logout_redirect_uri=").append(baseUrl);
-            if (authentication instanceof OAuth2AuthenticationToken token) {
-                OidcUser user = (OidcUser) token.getPrincipal();
-                logoutUrl.append("&id_token_hint=").append(user.getIdToken().getTokenValue());
+    private Collection<GrantedAuthority> extractAuthorities(Jwt jwt) {
+        Set<GrantedAuthority> authorities = new HashSet<>();
+
+        Map<String, Object> realmAccess = jwt.getClaimAsMap("realm_access");
+        if (realmAccess != null) {
+            @SuppressWarnings("unchecked")
+            List<String> roles = (List<String>) realmAccess.get("roles");
+            if (roles != null) {
+                roles.stream()
+                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
+                        .forEach(authorities::add);
             }
-            response.sendRedirect(logoutUrl.toString());
-        };
+        }
+
+        Map<String, Object> resourceAccess = jwt.getClaimAsMap("resource_access");
+        if (resourceAccess != null) {
+            resourceAccess.forEach((clientId, value) -> {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> clientMap = (Map<String, Object>) value;
+                @SuppressWarnings("unchecked")
+                List<String> roles = (List<String>) clientMap.get("roles");
+                if (roles != null) {
+                    roles.stream()
+                            .map(role -> new SimpleGrantedAuthority(
+                                    "ROLE_" + clientId.toUpperCase() + "_" + role.toUpperCase()))
+                            .forEach(authorities::add);
+                }
+            });
+        }
+
+        return authorities;
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("http://localhost:5173"));
+        config.setAllowedMethods(List.of("GET", "POST", "DELETE"));
+        config.setAllowedHeaders(List.of("*"));
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }

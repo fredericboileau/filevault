@@ -14,18 +14,7 @@ spring:
       use-suffix-pattern: false
   security:
     oauth2:
-      client:
-        registration:
-          keycloak:
-            client-id: filevault-app
-            client-secret: ${KEYCLOAK_CLIENT_SECRET:filevault-secret}
-            scope: openid,profile,email
-            authorization-grant-type: authorization_code
-            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
-        provider:
-          keycloak:
-            authorization-uri: ${KEYCLOAK_AUTHORIZATION_URI:http://localhost:8180/realms/filevault/protocol/openid-connect/auth}
-            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8180/realms/filevault/protocol/openid-connect/token}
-            user-info-uri: ${KEYCLOAK_USERINFO_URI:http://localhost:8180/realms/filevault/protocol/openid-connect/userinfo}
-            jwk-set-uri: ${KEYCLOAK_JWK_URI:http://localhost:8180/realms/filevault/protocol/openid-connect/certs}
-            user-name-attribute: preferred_username
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/filevault}
+          jwk-set-uri: ${KEYCLOAK_JWK_URI:http://localhost:8180/realms/filevault/protocol/openid-connect/certs}

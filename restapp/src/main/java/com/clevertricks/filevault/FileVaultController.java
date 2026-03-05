@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
+import org.springframework.security.oauth2.jwt.Jwt;
 
 @RestController
 public class FileVaultController {
@@ -28,8 +28,8 @@ public class FileVaultController {
         this.storageService = storageService;
     }
 
-    private String extractUserId(OidcUser oidcUser) {
-        return oidcUser.getSubject();
+    private String extractUserId(Jwt jwt) {
+        return jwt.getSubject();
     }
 
     record ListFilesView(
@@ -51,13 +51,13 @@ public class FileVaultController {
     }
 
     @GetMapping("/")
-    public ListFilesView listFiles(@AuthenticationPrincipal OidcUser user) {
-        var userId = extractUserId(user);
+    public ListFilesView listFiles(@AuthenticationPrincipal Jwt jwt) {
+        var userId = extractUserId(jwt);
         var otherUsers = storageService.listAllUsers();
         otherUsers.remove(userId);
         return new ListFilesView(
                 storageService.loadAll(userId).collect(Collectors.toList()),
-                user.getPreferredUsername(),
+                jwt.getClaimAsString("preferred_username"),
                 storageService.getTotalSize(userId),
                 storageService.getMaxFilesSize(),
                 otherUsers,
@@ -67,8 +67,8 @@ public class FileVaultController {
     @GetMapping("/files/{filename:.+}")
     public ResponseEntity<Resource> serveFile(
             @PathVariable String filename,
-            @AuthenticationPrincipal OidcUser oidcUser) {
-        Resource file = storageService.loadAsResource(filename, extractUserId(oidcUser));
+            @AuthenticationPrincipal Jwt jwt) {
+        Resource file = storageService.loadAsResource(filename, extractUserId(jwt));
         if (file == null)
             return ResponseEntity.notFound().build();
         return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
@@ -80,8 +80,8 @@ public class FileVaultController {
     public ResponseEntity<Resource> serveSharedFile(
             @PathVariable String owner,
             @PathVariable String filename,
-            @AuthenticationPrincipal OidcUser oidcUser) {
-        if (!storageService.isSharedWith(filename, owner, extractUserId(oidcUser))) {
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!storageService.isSharedWith(filename, owner, extractUserId(jwt))) {
             return ResponseEntity.status(403).build();
         }
         Resource file = storageService.loadAsResource(filename, owner);
@@ -95,9 +95,9 @@ public class FileVaultController {
     @PostMapping("/files")
     public ResponseEntity<String> handleFileUpload(
             @RequestParam("file") MultipartFile file,
-            @AuthenticationPrincipal OidcUser oidcUser) {
+            @AuthenticationPrincipal Jwt jwt) {
         try {
-            storageService.store(file, extractUserId(oidcUser));
+            storageService.store(file, extractUserId(jwt));
         } catch (StorageFileAlreadyExistsException e) {
             return ResponseEntity.status(409).body("File already exists");
         } catch (StorageFileEmptyException e) {
@@ -112,23 +112,20 @@ public class FileVaultController {
     @PostMapping("/share")
     public ResponseEntity<String> shareFiles(
             @RequestBody ShareRequest body,
-            @AuthenticationPrincipal OidcUser oidcUser) {
+            @AuthenticationPrincipal Jwt jwt) {
         try {
-            storageService.shareFilesWithUser(body.files(), extractUserId(oidcUser), body.userToShareWith());
+            storageService.shareFilesWithUser(body.files(), extractUserId(jwt), body.userToShareWith());
         } catch (StorageException e) {
             return ResponseEntity.badRequest().body("Couldn't share file");
-
         }
         return ResponseEntity.ok("");
-
     }
 
     @PostMapping("/files/delete")
     public ResponseEntity<String> deleteFiles(
             @RequestBody List<String> files,
-            @AuthenticationPrincipal OidcUser oidcUser) {
-
-        var owner = extractUserId(oidcUser);
+            @AuthenticationPrincipal Jwt jwt) {
+        var owner = extractUserId(jwt);
         try {
             files.forEach(f -> storageService.delete(f, owner));
         } catch (StorageException e) {
@@ -138,8 +135,7 @@ public class FileVaultController {
     }
 
     @GetMapping("/admin")
-    public AdminPageView adminPage(
-            @AuthenticationPrincipal OidcUser oidcUser) {
+    public AdminPageView adminPage(@AuthenticationPrincipal Jwt jwt) {
         List<UserSummary> usersSummaries = storageService.listOwners()
                 .map(userId -> new UserSummary(
                         userId,
@@ -151,7 +147,6 @@ public class FileVaultController {
                 usersSummaries,
                 usersSummaries.stream().mapToLong(u -> u.files().size()).sum(),
                 usersSummaries.stream().mapToLong(UserSummary::totalSize).sum());
-
     }
 
     @PostMapping("/admin/delete-user")
@@ -162,7 +157,6 @@ public class FileVaultController {
             return ResponseEntity.status(500).body("Could not delete all files for user" + userId);
         }
         return ResponseEntity.ok("");
-
     }
 
 }

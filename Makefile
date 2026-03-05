@@ -17,7 +17,7 @@ start-app:
 test:
 	$(COMPOSE_TEST) up -d db keycloak
 	$(COMPOSE_TEST) up wait-for-keycloak
-	keycloak/setuprealm.py
+	keycloak/setuprealm.py --test
 	cd restapp && mvn test -Dtest=FileVaultE2ETest; EXIT=$$?; \
 	cd .. && $(COMPOSE_TEST) down -v; \
 	exit $$EXIT

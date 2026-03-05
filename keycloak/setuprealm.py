@@ -8,6 +8,7 @@
 # ///
 
 
+import argparse
 import requests
 import sys
 
@@ -182,6 +183,10 @@ def assign_client_role(token: str, client_uuid: str, user_id: str, role: dict) -
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test", action="store_true", help="Create test users alice and bob")
+    args = parser.parse_args()
+
     token = get_admin_token()
     create_realm(token)
     client_uuid = create_client(token)
@@ -195,7 +200,13 @@ def main() -> None:
     assign_realm_role(token, admin_user_id, admin_realm_role)
     admin_client_role = create_client_role(token, client_uuid, "admin")
     assign_client_role(token, client_uuid, admin_user_id, admin_client_role)
-    print(f"\nDone. Realm '{realm}' is ready with user admin/admin (realm+client admin role).")
+
+    if args.test:
+        create_user(token, "alice", "alice")
+        create_user(token, "bob", "bob")
+        print(f"\nDone. Realm '{realm}' is ready with users admin/admin, alice/alice and bob/bob.")
+    else:
+        print(f"\nDone. Realm '{realm}' is ready with user admin/admin.")
 
 
 if __name__ == "__main__":

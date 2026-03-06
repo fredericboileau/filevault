@@ -317,8 +317,7 @@ public class PostgresqlFileSystemStorageService implements StorageService {
             if (Files.exists(rootLocation) && !FileSystemUtils.deleteRecursively(rootLocation.toFile())) {
                 throw new StorageException("Could not delete all files");
             }
-            conn.createStatement().execute("drop table if exists file_shares");
-            conn.createStatement().execute("drop table if exists filepaths");
+            conn.createStatement().execute("truncate table file_shares, filepaths");
             conn.createStatement().execute("update users set total_size = 0");
         } catch (SQLException e) {
             throw new StorageException("Could not delete tables", e);

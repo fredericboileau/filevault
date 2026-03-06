@@ -12,7 +12,7 @@ start-infra:
 	keycloak/setuprealm.py
 
 start-app:
-	docker compose up -d app
+	docker compose up -d --build app
 	cd frontend && npm run dev
 
 test:

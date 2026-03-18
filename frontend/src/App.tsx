@@ -25,6 +25,8 @@ function App() {
   const [filename, setFilename] = useState("Click to choose a file");
   const [file, setFile] = useState<File | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [userToShareWith, setUserToShareWith] = useState<string>();
+  const [filesToShare, setFilesToShare] = useState<string[]>([]);
 
   const username = keycloak.tokenParsed?.preferred_username;
 
@@ -62,6 +64,34 @@ function App() {
       prev => prev.includes(name) ?
         prev.filter(f => f !== name) : [...prev, name]
     )
+  const handleFileToggle = (file: string) => {
+    setFilesToShare((prev) => prev.includes(file) ?
+      prev.filter(f => f !== file) : [...prev, file])
+  }
+
+  const handleShare = async () => {
+    if (!userToShareWith || filesToShare.length === 0) return;
+    await authFetch("/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userToShareWith: userToShareWith, files: filesToShare
+      })
+    });
+    setFilesToShare([]);
+    setUserToShareWith("");
+  }
+
+  const download = async (path: string, filename: string) => {
+    const res = await authFetch(path);
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
 
   useEffect(() => { loadData() }, [])
 
@@ -124,7 +154,7 @@ function App() {
                       onChange={() => toggleFile(name)}
                     />
                     <a className="listfiles-card__filename"
-                      href={`/files/${name}`}>{name}</a>
+                      href="#" onClick={(e) => { e.preventDefault(); download(`/files/${name}`, name) }}>{name}</a>
                   </li>
                 ))}
               </ul>
@@ -137,6 +167,57 @@ function App() {
           )}
         </div>
 
+        <div className="glass sharefiles-card">
+          <h2 className="sharefiles-card__title">Share a file</h2>
+          {data && data.files.length > 0 && Object.keys(data.otherUsers).length > 0 && (
+            <div className="sharefiles-card__selectcard">
+              <select
+                className="sharefiles-card__selectuser"
+                value={userToShareWith ?? ""}
+                onChange={(e) => setUserToShareWith(e.target.value)}
+              >
+                <option value="" disabled>Select a user</option>
+                {Object.entries(data.otherUsers).map(([key, value]) => (
+                  <option key={key} value={key}>{value as string}</option>))}
+              </select>
+              <ul className="sharefiles-card__list">
+                {data.files.map((f: string) => (
+                  <li className="sharefiles-card__row" key={f}>
+                    <input type="checkbox"
+                      className="sharefiles-card__checkbox"
+                      checked={filesToShare.includes(f)}
+                      onChange={() => handleFileToggle(f)} />
+                    <span className="sharefiles-card__filename">{f}</span>
+                  </li>
+                ))}
+
+
+              </ul>
+              <button className="sharefiles-card__submit" onClick={handleShare}>Share</button>
+            </div>
+          )}
+        </div >
+
+        <div className="glass shared-with-me-card">
+          <h2 className="shared-with-me-card__title">Shared with you</h2>
+          {data && Object.entries(data.shares).map(([userId, files]) => (
+            <div key={userId} className="shared-with-me-card__user-entry">
+              <p className="shared-with-me-card__user-title">{data.otherUsers[userId] || userId}</p>
+              <ul className="shared-with-me-card__user-filelist">
+                {files.map(f => (
+                  <li key={f} className="shared-with-me-card__user-row">
+                    <a className="shared-with-me-card__user_link"
+                      href="#" onClick={(e) => {
+                        e.preventDefault(); download(`/shared/${userId}/${f}`, f)
+                      }}>
+                      {f}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
 
 
       </div >

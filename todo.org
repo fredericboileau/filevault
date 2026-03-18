@@ -1,4 +1,3 @@
-* use hashicorp vault for all credentials
 * DONE parametrize setuprealm to only use alice and bob for testing
 * DONE TDD test share
 ** retrieve UUID for alice and bob 
@@ -6,4 +5,10 @@
 ** uploadfile for user alice
 ** share with bob
 ** fetch shares and see if match
-* React app
+* DONE share FE 
+* DONE should be able to retrieve files
+* flash message error when backend is not working, check loadData and stuff resp codes
+* read about BEM
+* CycloneDX
+* Test with selenium
+* use hashicorp vault for all credentials
